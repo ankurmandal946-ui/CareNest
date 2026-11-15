@@ -1,0 +1,290 @@
+{
+  "entities": {
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Non-PII user preferences and active CareCircle reference.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "preferredRole": { "type": "string", "enum": ["elderly", "family", "caregiver"] },
+        "activeCircleId": { "type": "string", "maxLength": 128 },
+        "language": { "type": "string", "enum": ["en", "hi", "bn"] },
+        "theme": { "type": "string", "enum": ["light", "dark"] },
+        "highContrast": { "type": "boolean" },
+        "fontScale": { "type": "string", "enum": ["normal", "large", "xlarge"] },
+        "voiceEnabled": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "preferredRole", "language", "theme", "highContrast", "fontScale", "voiceEnabled", "createdAt", "updatedAt"]
+    },
+    "UserPrivateInfo": {
+      "title": "UserPrivateInfo",
+      "description": "Isolated PII and notification preferences accessible strictly to the account owner.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "maxLength": 254 },
+        "phone": { "type": "string", "maxLength": 32 },
+        "notifyUpcomingDose": { "type": "boolean" },
+        "notifyMissedDose": { "type": "boolean" },
+        "notifyAppointment": { "type": "boolean" },
+        "notifyCaregiverUpdates": { "type": "boolean" },
+        "emailAlertsEnabled": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "notifyUpcomingDose", "notifyMissedDose", "notifyAppointment", "notifyCaregiverUpdates", "emailAlertsEnabled", "updatedAt"]
+    },
+    "UserCircleIndex": {
+      "title": "UserCircleIndex",
+      "description": "Index allowing a signed-in user to list CareCircles they belong to without cross-collection list queries.",
+      "type": "object",
+      "properties": {
+        "circleId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "elderlyName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "role": { "type": "string", "enum": ["elderly", "family", "caregiver"] },
+        "joinedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["circleId", "elderlyName", "role", "joinedAt"]
+    },
+    "CareCircle": {
+      "title": "CareCircle",
+      "description": "Root CareCircle profile representing an elderly individual and their authorized care network.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "elderlyName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "elderlyAge": { "type": "integer" },
+        "bloodGroup": { "type": "string", "maxLength": 16 },
+        "allergies": { "type": "string", "maxLength": 500 },
+        "careNotes": { "type": "string", "maxLength": 1000 },
+        "emergencyContactName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "emergencyContactPhone": { "type": "string", "minLength": 3, "maxLength": 32 },
+        "emergencyContactRelation": { "type": "string", "maxLength": 64 },
+        "timezone": { "type": "string", "maxLength": 64 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "elderlyName", "elderlyAge", "emergencyContactName", "emergencyContactPhone", "timezone", "createdAt", "updatedAt"]
+    },
+    "CircleMember": {
+      "title": "CircleMember",
+      "description": "Authorized member within a CareCircle with role-based permissions.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "role": { "type": "string", "enum": ["elderly", "family", "caregiver"] },
+        "relation": { "type": "string", "maxLength": 64 },
+        "notifyEmail": { "type": "string", "maxLength": 254 },
+        "emailOptIn": { "type": "boolean" },
+        "canEditMedications": { "type": "boolean" },
+        "canManageAppointments": { "type": "boolean" },
+        "canLogDoses": { "type": "boolean" },
+        "canManageMembers": { "type": "boolean" },
+        "inviteCodeHash": { "type": "string", "maxLength": 128 },
+        "joinedAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "role", "canEditMedications", "canManageAppointments", "canLogDoses", "joinedAt", "updatedAt"]
+    },
+    "Invitation": {
+      "title": "Invitation",
+      "description": "Server-hashed single-use invitation passcode with expiration, role permissions, and revocation state.",
+      "type": "object",
+      "properties": {
+        "codeHash": { "type": "string", "maxLength": 128, "pattern": "^[a-f0-9]{64}$" },
+        "circleId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "elderlyName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "role": { "type": "string", "enum": ["elderly", "family", "caregiver"] },
+        "relation": { "type": "string", "maxLength": 64 },
+        "canEditMedications": { "type": "boolean" },
+        "canManageAppointments": { "type": "boolean" },
+        "canLogDoses": { "type": "boolean" },
+        "canManageMembers": { "type": "boolean" },
+        "createdBy": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdByName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "usedAt": { "type": "string", "format": "date-time" },
+        "acceptedBy": { "type": "string", "maxLength": 128 },
+        "acceptedByName": { "type": "string", "maxLength": 100 },
+        "revokedAt": { "type": "string", "format": "date-time" },
+        "revokedBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["codeHash", "circleId", "elderlyName", "role", "canEditMedications", "canManageAppointments", "canLogDoses", "createdBy", "expiresAt", "createdAt"]
+    },
+    "Medication": {
+      "title": "Medication",
+      "description": "Prescribed medication schedule belonging to a CareCircle.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "dosage": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "frequency": { "type": "string", "enum": ["once_daily", "twice_daily", "three_times_daily", "four_times_daily", "custom"] },
+        "times": { "type": "array", "maxLength": 8 },
+        "startDate": { "type": "string", "maxLength": 20 },
+        "endDate": { "type": "string", "maxLength": 20 },
+        "instructions": { "type": "string", "maxLength": 400 },
+        "prescribingDoctor": { "type": "string", "maxLength": 120 },
+        "gracePeriodMinutes": { "type": "integer" },
+        "archived": { "type": "boolean" },
+        "createdBy": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "dosage", "frequency", "times", "startDate", "gracePeriodMinutes", "archived", "createdBy", "createdAt", "updatedAt"]
+    },
+    "MedicationLog": {
+      "title": "MedicationLog",
+      "description": "Individual dose administration record (taken, missed, or skipped).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "medicationId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "medicationName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "dosage": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "dateKey": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "maxLength": 10 },
+        "scheduledTime": { "type": "string", "pattern": "^\\d{2}:\\d{2}$", "maxLength": 5 },
+        "status": { "type": "string", "enum": ["taken", "missed", "skipped"] },
+        "recordedByUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "recordedByName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "recordedByRole": { "type": "string", "enum": ["elderly", "family", "caregiver", "system"] },
+        "notes": { "type": "string", "maxLength": 300 },
+        "recordedAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "medicationId", "medicationName", "dosage", "dateKey", "scheduledTime", "status", "recordedByUid", "recordedByName", "recordedByRole", "recordedAt", "createdAt"]
+    },
+    "Appointment": {
+      "title": "Appointment",
+      "description": "Doctor appointment belonging to a CareCircle.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "doctorName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "specialization": { "type": "string", "maxLength": 100 },
+        "clinicName": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "dateTime": { "type": "string", "maxLength": 40 },
+        "notes": { "type": "string", "maxLength": 500 },
+        "status": { "type": "string", "enum": ["upcoming", "completed", "cancelled"] },
+        "reminderSent": { "type": "boolean" },
+        "createdBy": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "doctorName", "clinicName", "dateTime", "status", "reminderSent", "createdBy", "createdAt", "updatedAt"]
+    },
+    "CareTask": {
+      "title": "CareTask",
+      "description": "Collaborative family and caregiver coordination task or daily care note.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "notes": { "type": "string", "maxLength": 500 },
+        "category": { "type": "string", "enum": ["task", "care_log", "assistance_alert"] },
+        "completed": { "type": "boolean" },
+        "completedBy": { "type": "string", "maxLength": 100 },
+        "dueDate": { "type": "string", "maxLength": 40 },
+        "createdBy": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdByName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title", "category", "completed", "createdBy", "createdByName", "createdAt", "updatedAt"]
+    },
+    "NotificationItem": {
+      "title": "NotificationItem",
+      "description": "Persistent notification and email delivery log entry.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "eventType": { "type": "string", "enum": ["upcoming_dose", "missed_dose", "appointment_reminder", "appointment_change", "caregiver_update", "test_email"] },
+        "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "message": { "type": "string", "minLength": 1, "maxLength": 600 },
+        "deliveryMode": { "type": "string", "enum": ["real_email", "simulated_demo", "in_app"] },
+        "providerName": { "type": "string", "maxLength": 32 },
+        "providerMessageId": { "type": "string", "maxLength": 200 },
+        "emailTarget": { "type": "string", "maxLength": 254 },
+        "read": { "type": "boolean" },
+        "createdBy": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "eventType", "title", "message", "deliveryMode", "read", "createdBy", "createdAt"]
+    },
+    "ActivityLog": {
+      "title": "ActivityLog",
+      "description": "Immutable CareCircle audit timeline record.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "actorUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "actorName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "actorRole": { "type": "string", "enum": ["elderly", "family", "caregiver", "system"] },
+        "action": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "targetName": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "details": { "type": "string", "maxLength": 400 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "actorUid", "actorName", "actorRole", "action", "targetName", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserAccount" },
+      "description": "User preferences and UI settings."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivateInfo" },
+      "description": "Owner-only PII and notification preferences."
+    },
+    "/users/{userId}/circles/{circleId}": {
+      "schema": { "$ref": "#/entities/UserCircleIndex" },
+      "description": "User's joined CareCircles index."
+    },
+    "/invitations/{codeHash}": {
+      "schema": { "$ref": "#/entities/Invitation" },
+      "description": "Single-use SHA-256 hashed CareCircle invitations."
+    },
+    "/careCircles/{circleId}": {
+      "schema": { "$ref": "#/entities/CareCircle" },
+      "description": "CareCircle elderly profile root document."
+    },
+    "/careCircles/{circleId}/members/{memberId}": {
+      "schema": { "$ref": "#/entities/CircleMember" },
+      "description": "CareCircle membership and role-based permissions."
+    },
+    "/careCircles/{circleId}/invitations/{codeHash}": {
+      "schema": { "$ref": "#/entities/Invitation" },
+      "description": "Circle-scoped invitation metadata index for pending tracking, expiry timers, and revocation."
+    },
+    "/careCircles/{circleId}/medications/{medId}": {
+      "schema": { "$ref": "#/entities/Medication" },
+      "description": "CareCircle prescribed medications."
+    },
+    "/careCircles/{circleId}/medicationLogs/{logId}": {
+      "schema": { "$ref": "#/entities/MedicationLog" },
+      "description": "CareCircle daily medication logs."
+    },
+    "/careCircles/{circleId}/appointments/{apptId}": {
+      "schema": { "$ref": "#/entities/Appointment" },
+      "description": "CareCircle doctor appointments."
+    },
+    "/careCircles/{circleId}/careTasks/{taskId}": {
+      "schema": { "$ref": "#/entities/CareTask" },
+      "description": "CareCircle family/caregiver tasks and daily care reports."
+    },
+    "/careCircles/{circleId}/notifications/{notifId}": {
+      "schema": { "$ref": "#/entities/NotificationItem" },
+      "description": "CareCircle notification and email log history."
+    },
+    "/careCircles/{circleId}/activityLogs/{logId}": {
+      "schema": { "$ref": "#/entities/ActivityLog" },
+      "description": "CareCircle immutable activity timeline."
+    }
+  }
+}

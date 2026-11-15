@@ -1,0 +1,99 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-display: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    --font-sans: 'DM Sans', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  }
+
+  html {
+    font-family: var(--font-sans);
+    scroll-behavior: smooth;
+  }
+
+  html.font-large {
+    font-size: 18px;
+  }
+
+  html.font-xlarge {
+    font-size: 20px;
+  }
+
+  h1, h2, h3, h4, .font-display {
+    font-family: var(--font-display);
+  }
+
+  .font-mono, .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Dedicated High-Contrast Accessibility Mode (WCAG AAA clarity) */
+html.high-contrast body {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+}
+
+html.high-contrast .hc-surface {
+  background-color: #0a0a0a !important;
+  color: #ffffff !important;
+  border-color: #facc15 !important;
+  border-width: 2px !important;
+}
+
+html.high-contrast .hc-surface :is(h1, h2, h3, h4, p, span, div, label, td, th, li, strong, code, a) {
+  color: #ffffff;
+}
+
+html.high-contrast .hc-surface :is(.text-sky-700, .text-sky-800, .text-sky-400, .text-amber-700, .text-amber-800, .text-amber-400) {
+  color: #fde047 !important;
+}
+
+html.high-contrast .hc-surface :is(.text-emerald-700, .text-emerald-800, .text-emerald-400) {
+  color: #86efac !important;
+}
+
+html.high-contrast .hc-surface :is(.text-rose-700, .text-rose-800, .text-rose-400) {
+  color: #fda4af !important;
+}
+
+html.high-contrast :is(input, select, textarea) {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+  border-color: #facc15 !important;
+}
+
+html.high-contrast .hc-muted {
+  color: #fef08a !important;
+}
+
+html.high-contrast .hc-primary-btn {
+  background-color: #facc15 !important;
+  color: #000000 !important;
+  border: 2px solid #ffffff !important;
+  font-weight: 700 !important;
+}
+
+html.high-contrast .hc-primary-btn * {
+  color: #000000 !important;
+}
+
+html.high-contrast a:focus-visible,
+html.high-contrast button:focus-visible,
+html.high-contrast input:focus-visible,
+html.high-contrast select:focus-visible,
+html.high-contrast textarea:focus-visible {
+  outline: 3px solid #38bdf8 !important;
+  outline-offset: 2px !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

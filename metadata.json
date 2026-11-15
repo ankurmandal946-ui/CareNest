@@ -1,0 +1,10 @@
+{
+  "name": "Remix Remix CareCircle",
+  "description": "Together for Better Elderly Care — A collaborative, accessible elderly healthcare, medication, appointment, and AI care assistant platform.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

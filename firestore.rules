@@ -1,0 +1,772 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net: default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ── Global Primitives ───────────────────────────────────────────────
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidHash(h) {
+      return h is string && h.size() == 64 && h.matches('^[a-f0-9]{64}$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function circlePath(circleId) {
+      return /databases/$(database)/documents/careCircles/$(circleId);
+    }
+
+    function memberPath(circleId, uid) {
+      return /databases/$(database)/documents/careCircles/$(circleId)/members/$(uid);
+    }
+
+    function isCircleOwner(circleId) {
+      return isSignedIn()
+        && exists(circlePath(circleId))
+        && get(circlePath(circleId)).data.ownerId == request.auth.uid;
+    }
+
+    function isCircleMember(circleId) {
+      return isSignedIn() && exists(memberPath(circleId, request.auth.uid));
+    }
+
+    function memberData(circleId) {
+      return get(memberPath(circleId, request.auth.uid)).data;
+    }
+
+    function isCircleOrganizer(circleId) {
+      return isCircleOwner(circleId)
+        || (isCircleMember(circleId)
+            && ('canManageMembers' in memberData(circleId))
+            && memberData(circleId).canManageMembers == true);
+    }
+
+    function canEditMedications(circleId) {
+      return isCircleOwner(circleId)
+        || (isCircleMember(circleId) && memberData(circleId).canEditMedications == true);
+    }
+
+    function canManageAppointments(circleId) {
+      return isCircleOwner(circleId)
+        || (isCircleMember(circleId) && memberData(circleId).canManageAppointments == true);
+    }
+
+    function canLogDoses(circleId) {
+      return isCircleOwner(circleId)
+        || (isCircleMember(circleId) && memberData(circleId).canLogDoses == true);
+    }
+
+    // ── Entity Validation Blueprints ────────────────────────────────────
+    function isValidUserAccount(data) {
+      return data.keys().hasAll([
+          'uid', 'displayName', 'preferredRole', 'activeCircleId',
+          'language', 'theme', 'highContrast', 'fontScale', 'voiceEnabled',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'displayName', 'preferredRole', 'activeCircleId',
+          'language', 'theme', 'highContrast', 'fontScale', 'voiceEnabled',
+          'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.uid)
+        && data.uid == request.auth.uid
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100
+        && data.preferredRole in ['elderly', 'family', 'caregiver']
+        && data.activeCircleId is string && data.activeCircleId.size() <= 128
+        && data.language in ['en', 'hi', 'bn']
+        && data.theme in ['light', 'dark']
+        && data.highContrast is bool
+        && data.fontScale in ['normal', 'large', 'xlarge']
+        && data.voiceEnabled is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserPrivateInfo(data) {
+      return data.keys().hasAll([
+          'uid', 'email', 'phone', 'notifyUpcomingDose', 'notifyMissedDose',
+          'notifyAppointment', 'notifyCaregiverUpdates', 'emailAlertsEnabled', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'email', 'phone', 'notifyUpcomingDose', 'notifyMissedDose',
+          'notifyAppointment', 'notifyCaregiverUpdates', 'emailAlertsEnabled', 'updatedAt'
+        ])
+        && isValidId(data.uid)
+        && data.uid == request.auth.uid
+        && data.email is string && data.email.size() <= 254
+        && data.phone is string && data.phone.size() <= 32
+        && data.notifyUpcomingDose is bool
+        && data.notifyMissedDose is bool
+        && data.notifyAppointment is bool
+        && data.notifyCaregiverUpdates is bool
+        && data.emailAlertsEnabled is bool
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserCircleIndex(data, circleId) {
+      return data.keys().hasAll(['circleId', 'elderlyName', 'role', 'joinedAt'])
+        && data.keys().hasOnly(['circleId', 'elderlyName', 'role', 'joinedAt'])
+        && isValidId(data.circleId)
+        && data.circleId == circleId
+        && data.elderlyName is string && data.elderlyName.size() >= 1 && data.elderlyName.size() <= 100
+        && data.role in ['elderly', 'family', 'caregiver']
+        && data.joinedAt is timestamp;
+    }
+
+    function isValidCareCircle(data, circleId) {
+      return data.keys().hasAll([
+          'id', 'ownerId', 'elderlyName', 'elderlyAge', 'bloodGroup', 'allergies',
+          'careNotes', 'emergencyContactName', 'emergencyContactPhone',
+          'emergencyContactRelation', 'timezone', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'ownerId', 'elderlyName', 'elderlyAge', 'bloodGroup', 'allergies',
+          'careNotes', 'emergencyContactName', 'emergencyContactPhone',
+          'emergencyContactRelation', 'timezone', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.id == circleId
+        && isValidId(data.ownerId)
+        && data.elderlyName is string && data.elderlyName.size() >= 1 && data.elderlyName.size() <= 100
+        && data.elderlyAge is int && data.elderlyAge >= 1 && data.elderlyAge <= 130
+        && data.bloodGroup is string && data.bloodGroup.size() <= 16
+        && data.allergies is string && data.allergies.size() <= 500
+        && data.careNotes is string && data.careNotes.size() <= 1000
+        && data.emergencyContactName is string && data.emergencyContactName.size() >= 1 && data.emergencyContactName.size() <= 100
+        && data.emergencyContactPhone is string && data.emergencyContactPhone.size() >= 3 && data.emergencyContactPhone.size() <= 32
+        && data.emergencyContactRelation is string && data.emergencyContactRelation.size() <= 64
+        && data.timezone is string && data.timezone.size() >= 1 && data.timezone.size() <= 64
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCircleMember(data, memberId) {
+      return data.keys().hasAll([
+          'uid', 'displayName', 'role', 'relation', 'notifyEmail',
+          'canEditMedications', 'canManageAppointments', 'canLogDoses',
+          'inviteCodeHash', 'joinedAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'uid', 'displayName', 'role', 'relation', 'notifyEmail', 'emailOptIn',
+          'canEditMedications', 'canManageAppointments', 'canLogDoses',
+          'canManageMembers', 'inviteCodeHash', 'joinedAt', 'updatedAt'
+        ])
+        && isValidId(data.uid)
+        && data.uid == memberId
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100
+        && data.role in ['elderly', 'family', 'caregiver']
+        && data.relation is string && data.relation.size() <= 64
+        && data.notifyEmail is string && data.notifyEmail.size() <= 254
+        && (!('emailOptIn' in data) || data.emailOptIn is bool)
+        && data.canEditMedications is bool
+        && data.canManageAppointments is bool
+        && data.canLogDoses is bool
+        && (!('canManageMembers' in data) || data.canManageMembers is bool)
+        && data.inviteCodeHash is string && data.inviteCodeHash.size() <= 128
+        && data.joinedAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidInvitation(data, codeHash) {
+      return data.keys().hasAll([
+          'codeHash', 'circleId', 'elderlyName', 'role', 'relation',
+          'canEditMedications', 'canManageAppointments', 'canLogDoses',
+          'createdBy', 'expiresAt', 'usedAt', 'acceptedBy', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'codeHash', 'circleId', 'elderlyName', 'role', 'relation',
+          'canEditMedications', 'canManageAppointments', 'canLogDoses',
+          'canManageMembers', 'createdBy', 'createdByName', 'expiresAt',
+          'usedAt', 'acceptedBy', 'acceptedByName', 'revokedAt', 'revokedBy', 'createdAt'
+        ])
+        && isValidHash(data.codeHash)
+        && data.codeHash == codeHash
+        && isValidId(data.circleId)
+        && data.elderlyName is string && data.elderlyName.size() >= 1 && data.elderlyName.size() <= 100
+        && data.role in ['elderly', 'family', 'caregiver']
+        && data.relation is string && data.relation.size() <= 64
+        && data.canEditMedications is bool
+        && data.canManageAppointments is bool
+        && data.canLogDoses is bool
+        && (!('canManageMembers' in data) || data.canManageMembers is bool)
+        && isValidId(data.createdBy)
+        && (!('createdByName' in data) || (data.createdByName is string && data.createdByName.size() >= 1 && data.createdByName.size() <= 100))
+        && data.expiresAt is timestamp
+        && (data.usedAt == null || data.usedAt is timestamp)
+        && (data.acceptedBy == null || (data.acceptedBy is string && data.acceptedBy.size() <= 128))
+        && (!('acceptedByName' in data) || data.acceptedByName == null || (data.acceptedByName is string && data.acceptedByName.size() <= 100))
+        && (!('revokedAt' in data) || data.revokedAt == null || data.revokedAt is timestamp)
+        && (!('revokedBy' in data) || data.revokedBy == null || isValidId(data.revokedBy))
+        && data.createdAt is timestamp;
+    }
+
+    function isValidMedication(data, medId) {
+      return data.keys().hasAll([
+          'id', 'name', 'dosage', 'frequency', 'times', 'startDate', 'endDate',
+          'instructions', 'prescribingDoctor', 'gracePeriodMinutes', 'archived',
+          'createdBy', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'name', 'dosage', 'frequency', 'times', 'startDate', 'endDate',
+          'instructions', 'prescribingDoctor', 'gracePeriodMinutes', 'archived',
+          'createdBy', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.id == medId
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && data.dosage is string && data.dosage.size() >= 1 && data.dosage.size() <= 80
+        && data.frequency in ['once_daily', 'twice_daily', 'three_times_daily', 'four_times_daily', 'custom']
+        && data.times is list && data.times.size() >= 1 && data.times.size() <= 8 && data.times[0] is string
+        && data.startDate is string && data.startDate.size() >= 8 && data.startDate.size() <= 20
+        && data.endDate is string && data.endDate.size() <= 20
+        && data.instructions is string && data.instructions.size() <= 400
+        && data.prescribingDoctor is string && data.prescribingDoctor.size() <= 120
+        && data.gracePeriodMinutes is int && data.gracePeriodMinutes >= 5 && data.gracePeriodMinutes <= 720
+        && data.archived is bool
+        && isValidId(data.createdBy)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidMedicationLog(data, logId) {
+      return data.keys().hasAll([
+          'id', 'medicationId', 'medicationName', 'dosage', 'dateKey',
+          'scheduledTime', 'status', 'recordedByUid', 'recordedByName',
+          'recordedByRole', 'notes', 'recordedAt', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'medicationId', 'medicationName', 'dosage', 'dateKey',
+          'scheduledTime', 'status', 'recordedByUid', 'recordedByName',
+          'recordedByRole', 'notes', 'recordedAt', 'createdAt'
+        ])
+        && isValidId(data.id)
+        && data.id == logId
+        && isValidId(data.medicationId)
+        && data.medicationName is string && data.medicationName.size() >= 1 && data.medicationName.size() <= 120
+        && data.dosage is string && data.dosage.size() >= 1 && data.dosage.size() <= 80
+        && data.dateKey is string && data.dateKey.size() == 10 && data.dateKey.matches('^\\d{4}-\\d{2}-\\d{2}$')
+        && data.scheduledTime is string && data.scheduledTime.size() == 5 && data.scheduledTime.matches('^\\d{2}:\\d{2}$')
+        && data.status in ['taken', 'missed', 'skipped']
+        && isValidId(data.recordedByUid)
+        && data.recordedByName is string && data.recordedByName.size() >= 1 && data.recordedByName.size() <= 100
+        && data.recordedByRole in ['elderly', 'family', 'caregiver', 'system']
+        && data.notes is string && data.notes.size() <= 300
+        && data.recordedAt is timestamp
+        && data.createdAt is timestamp;
+    }
+
+    function isValidAppointment(data, apptId) {
+      return data.keys().hasAll([
+          'id', 'doctorName', 'specialization', 'clinicName', 'dateTime',
+          'notes', 'status', 'reminderSent', 'createdBy', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'doctorName', 'specialization', 'clinicName', 'dateTime',
+          'notes', 'status', 'reminderSent', 'createdBy', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.id == apptId
+        && data.doctorName is string && data.doctorName.size() >= 1 && data.doctorName.size() <= 120
+        && data.specialization is string && data.specialization.size() <= 100
+        && data.clinicName is string && data.clinicName.size() >= 1 && data.clinicName.size() <= 160
+        && data.dateTime is string && data.dateTime.size() >= 10 && data.dateTime.size() <= 40
+        && data.notes is string && data.notes.size() <= 500
+        && data.status in ['upcoming', 'completed', 'cancelled']
+        && data.reminderSent is bool
+        && isValidId(data.createdBy)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCareTask(data, taskId) {
+      return data.keys().hasAll([
+          'id', 'title', 'notes', 'category', 'completed', 'completedBy',
+          'dueDate', 'createdBy', 'createdByName', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'title', 'notes', 'category', 'completed', 'completedBy',
+          'dueDate', 'createdBy', 'createdByName', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.id == taskId
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 160
+        && data.notes is string && data.notes.size() <= 500
+        && data.category in ['task', 'care_log', 'assistance_alert']
+        && data.completed is bool
+        && data.completedBy is string && data.completedBy.size() <= 100
+        && data.dueDate is string && data.dueDate.size() <= 40
+        && isValidId(data.createdBy)
+        && data.createdByName is string && data.createdByName.size() >= 1 && data.createdByName.size() <= 100
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidNotification(data, notifId) {
+      return data.keys().hasAll([
+          'id', 'eventType', 'title', 'message', 'deliveryMode',
+          'emailTarget', 'read', 'createdBy', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'eventType', 'title', 'message', 'deliveryMode',
+          'providerName', 'providerMessageId',
+          'emailTarget', 'read', 'createdBy', 'createdAt'
+        ])
+        && isValidId(data.id)
+        && data.id == notifId
+        && data.eventType in [
+          'upcoming_dose', 'missed_dose', 'appointment_reminder',
+          'appointment_change', 'caregiver_update', 'test_email'
+        ]
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 160
+        && data.message is string && data.message.size() >= 1 && data.message.size() <= 600
+        && data.deliveryMode in ['real_email', 'simulated_demo', 'in_app']
+        && (!('providerName' in data) || (data.providerName is string && data.providerName.size() <= 32))
+        && (!('providerMessageId' in data) || (data.providerMessageId is string && data.providerMessageId.size() <= 200))
+        && data.emailTarget is string && data.emailTarget.size() <= 254
+        && data.read is bool
+        && isValidId(data.createdBy)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidActivityLog(data, logId) {
+      return data.keys().hasAll([
+          'id', 'actorUid', 'actorName', 'actorRole', 'action',
+          'targetName', 'details', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'actorUid', 'actorName', 'actorRole', 'action',
+          'targetName', 'details', 'createdAt'
+        ])
+        && isValidId(data.id)
+        && data.id == logId
+        && isValidId(data.actorUid)
+        && data.actorName is string && data.actorName.size() >= 1 && data.actorName.size() <= 100
+        && data.actorRole in ['elderly', 'family', 'caregiver', 'system']
+        && data.action is string && data.action.size() >= 1 && data.action.size() <= 80
+        && data.targetName is string && data.targetName.size() >= 1 && data.targetName.size() <= 160
+        && data.details is string && data.details.size() <= 400
+        && data.createdAt is timestamp;
+    }
+
+    // ── Users & Split PII Isolation ─────────────────────────────────────
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && isOwner(userId);
+      allow list: if false;
+      allow create: if isVerified() && isValidId(userId) && isOwner(userId)
+        && isValidUserAccount(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isVerified() && isValidId(userId) && isOwner(userId)
+        && isValidUserAccount(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'displayName', 'preferredRole', 'activeCircleId',
+          'language', 'theme', 'highContrast', 'fontScale', 'voiceEnabled', 'updatedAt'
+        ]);
+      allow delete: if false;
+
+      match /private/{docId} {
+        allow get: if isSignedIn() && isValidId(userId) && isValidId(docId) && isOwner(userId);
+        allow list: if isSignedIn() && isValidId(userId) && isOwner(userId);
+        allow create: if isVerified() && isValidId(userId) && isValidId(docId) && isOwner(userId)
+          && isValidUserPrivateInfo(incoming())
+          && incoming().updatedAt == request.time;
+        allow update: if isVerified() && isValidId(userId) && isValidId(docId) && isOwner(userId)
+          && isValidUserPrivateInfo(incoming())
+          && incoming().uid == existing().uid
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'email', 'phone', 'notifyUpcomingDose', 'notifyMissedDose',
+            'notifyAppointment', 'notifyCaregiverUpdates', 'emailAlertsEnabled', 'updatedAt'
+          ]);
+        allow delete: if false;
+      }
+
+      match /circles/{circleId} {
+        allow get: if isSignedIn() && isValidId(userId) && isValidId(circleId) && isOwner(userId);
+        allow list: if isSignedIn() && isValidId(userId) && isOwner(userId);
+        allow create: if isVerified() && isValidId(userId) && isValidId(circleId) && isOwner(userId)
+          && isValidUserCircleIndex(incoming(), circleId)
+          && incoming().joinedAt == request.time
+          && (
+            (existsAfter(circlePath(circleId)) && getAfter(circlePath(circleId)).data.ownerId == request.auth.uid)
+            || existsAfter(memberPath(circleId, userId))
+          );
+        allow update: if isVerified() && isValidId(userId) && isValidId(circleId) && isOwner(userId)
+          && isValidUserCircleIndex(incoming(), circleId)
+          && incoming().circleId == existing().circleId
+          && incoming().joinedAt == existing().joinedAt
+          && incoming().diff(existing()).affectedKeys().hasOnly(['elderlyName']);
+        allow delete: if isVerified() && isValidId(userId) && isValidId(circleId) && isOwner(userId);
+      }
+    }
+
+    // ── Hashed Single-Use Invitations ───────────────────────────────────
+    match /invitations/{codeHash} {
+      allow list: if false;
+      allow get: if isVerified() && isValidHash(codeHash);
+      allow create: if isVerified() && isValidHash(codeHash)
+        && isValidInvitation(incoming(), codeHash)
+        && incoming().createdBy == request.auth.uid
+        && incoming().usedAt == null
+        && incoming().acceptedBy == null
+        && (!('revokedAt' in incoming()) || incoming().revokedAt == null)
+        && (!('revokedBy' in incoming()) || incoming().revokedBy == null)
+        && ((!('canManageMembers' in incoming()) || incoming().canManageMembers == false) || isCircleOwner(incoming().circleId))
+        && incoming().expiresAt > request.time
+        && incoming().createdAt == request.time
+        && isCircleOrganizer(incoming().circleId);
+      allow update: if isVerified() && isValidHash(codeHash)
+        && isValidInvitation(incoming(), codeHash)
+        && incoming().codeHash == existing().codeHash
+        && incoming().circleId == existing().circleId
+        && incoming().createdBy == existing().createdBy
+        && incoming().createdAt == existing().createdAt
+        && (
+          (
+            // Action: Redeem unused, unrevoked, unexpired invitation
+            existing().usedAt == null
+            && existing().acceptedBy == null
+            && (!('revokedAt' in existing()) || existing().revokedAt == null)
+            && existing().expiresAt > request.time
+            && incoming().diff(existing()).affectedKeys().hasOnly(['usedAt', 'acceptedBy', 'acceptedByName'])
+            && incoming().usedAt == request.time
+            && incoming().acceptedBy == request.auth.uid
+            && existsAfter(memberPath(existing().circleId, request.auth.uid))
+          )
+          || (
+            // Action: Revoke pending invitation (Owner or Organizer)
+            existing().usedAt == null
+            && existing().acceptedBy == null
+            && (!('revokedAt' in existing()) || existing().revokedAt == null)
+            && isCircleOrganizer(existing().circleId)
+            && incoming().diff(existing()).affectedKeys().hasOnly(['revokedAt', 'revokedBy'])
+            && incoming().revokedAt == request.time
+            && incoming().revokedBy == request.auth.uid
+          )
+        );
+      allow delete: if isVerified() && isValidHash(codeHash) && isCircleOrganizer(existing().circleId);
+    }
+
+    // ── CareCircles & Master-Gated Subcollections ───────────────────────
+    match /careCircles/{circleId} {
+      allow get: if isSignedIn() && isValidId(circleId)
+        && (existing().ownerId == request.auth.uid || isCircleMember(circleId));
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isVerified() && isValidId(circleId)
+        && isValidCareCircle(incoming(), circleId)
+        && incoming().ownerId == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isVerified() && isValidId(circleId)
+        && isValidCareCircle(incoming(), circleId)
+        && existing().ownerId == request.auth.uid
+        && incoming().id == existing().id
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'elderlyName', 'elderlyAge', 'bloodGroup', 'allergies', 'careNotes',
+          'emergencyContactName', 'emergencyContactPhone', 'emergencyContactRelation',
+          'timezone', 'updatedAt'
+        ]);
+      allow delete: if false;
+
+      match /members/{memberId} {
+        allow get: if isSignedIn() && isValidId(circleId) && isValidId(memberId)
+          && (isCircleOwner(circleId) || isCircleMember(circleId));
+        allow list: if isSignedIn() && (isCircleOwner(circleId) || isCircleMember(circleId));
+
+        allow create: if isVerified() && isValidId(circleId) && isValidId(memberId)
+          && isValidCircleMember(incoming(), memberId)
+          && incoming().uid == request.auth.uid
+          && incoming().joinedAt == request.time
+          && incoming().updatedAt == request.time
+          && (
+            (
+              // Circle Owner / Organizer creating their own initial membership
+              incoming().role in ['elderly', 'family', 'caregiver']
+              && incoming().canEditMedications == true
+              && incoming().canManageAppointments == true
+              && incoming().canLogDoses == true
+              && (!('canManageMembers' in incoming()) || incoming().canManageMembers == true)
+              && (
+                (exists(circlePath(circleId)) && get(circlePath(circleId)).data.ownerId == request.auth.uid)
+                || (existsAfter(circlePath(circleId)) && getAfter(circlePath(circleId)).data.ownerId == request.auth.uid)
+              )
+            )
+            || (
+              // Invited Elderly, Family, or Caregiver redeeming a valid unrevoked invite
+              incoming().role in ['elderly', 'family', 'caregiver']
+              && isValidHash(incoming().inviteCodeHash)
+              && exists(/databases/$(database)/documents/invitations/$(incoming().inviteCodeHash))
+              && get(/databases/$(database)/documents/invitations/$(incoming().inviteCodeHash)).data.circleId == circleId
+              && get(/databases/$(database)/documents/invitations/$(incoming().inviteCodeHash)).data.usedAt == null
+              && (!('revokedAt' in get(/databases/$(database)/documents/invitations/$(incoming().inviteCodeHash)).data)
+                  || get(/databases/$(database)/documents/invitations/$(incoming().inviteCodeHash)).data.revokedAt == null)
+              && get(/databases/$(database)/documents/invitations/$(incoming().inviteCodeHash)).data.expiresAt > request.time
+              && get(/databases/$(database)/documents/invitations/$(incoming().inviteCodeHash)).data.role == incoming().role
+              && get(/databases/$(database)/documents/invitations/$(incoming().inviteCodeHash)).data.canEditMedications == incoming().canEditMedications
+              && get(/databases/$(database)/documents/invitations/$(incoming().inviteCodeHash)).data.canManageAppointments == incoming().canManageAppointments
+              && get(/databases/$(database)/documents/invitations/$(incoming().inviteCodeHash)).data.canLogDoses == incoming().canLogDoses
+              && (
+                (!('canManageMembers' in incoming())
+                  && (!('canManageMembers' in get(/databases/$(database)/documents/invitations/$(incoming().inviteCodeHash)).data)
+                      || get(/databases/$(database)/documents/invitations/$(incoming().inviteCodeHash)).data.canManageMembers == false))
+                || (('canManageMembers' in incoming())
+                  && ('canManageMembers' in get(/databases/$(database)/documents/invitations/$(incoming().inviteCodeHash)).data)
+                  && get(/databases/$(database)/documents/invitations/$(incoming().inviteCodeHash)).data.canManageMembers == incoming().canManageMembers)
+              )
+              && getAfter(/databases/$(database)/documents/invitations/$(incoming().inviteCodeHash)).data.acceptedBy == request.auth.uid
+              && getAfter(/databases/$(database)/documents/invitations/$(incoming().inviteCodeHash)).data.usedAt == request.time
+            )
+          );
+
+        allow update: if isVerified() && isValidId(circleId) && isValidId(memberId)
+          && isValidCircleMember(incoming(), memberId)
+          && incoming().uid == existing().uid
+          && incoming().joinedAt == existing().joinedAt
+          && incoming().inviteCodeHash == existing().inviteCodeHash
+          && incoming().updatedAt == request.time
+          && (
+            (isCircleOwner(circleId) && incoming().diff(existing()).affectedKeys().hasOnly([
+              'canEditMedications', 'canManageAppointments', 'canLogDoses', 'canManageMembers', 'relation', 'updatedAt'
+            ]))
+            || (isCircleOrganizer(circleId)
+                && memberId != get(circlePath(circleId)).data.ownerId
+                && incoming().diff(existing()).affectedKeys().hasOnly([
+                  'canEditMedications', 'canManageAppointments', 'canLogDoses', 'relation', 'updatedAt'
+                ]))
+            || (memberId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly([
+              'displayName', 'notifyEmail', 'emailOptIn', 'updatedAt'
+            ]))
+          );
+
+        allow delete: if isVerified() && isValidId(circleId) && isValidId(memberId)
+          && (
+            (isCircleOwner(circleId) && memberId != request.auth.uid)
+            || (isCircleOrganizer(circleId)
+                && memberId != request.auth.uid
+                && get(circlePath(circleId)).data.ownerId != memberId)
+            || (memberId == request.auth.uid && !isCircleOwner(circleId))
+          );
+      }
+
+      match /invitations/{codeHash} {
+        allow get: if isSignedIn() && isValidId(circleId) && isValidHash(codeHash)
+          && isCircleOrganizer(circleId);
+        allow list: if isSignedIn() && isCircleOrganizer(circleId)
+          && resource.data.circleId == circleId;
+        allow create: if isVerified() && isValidId(circleId) && isValidHash(codeHash)
+          && isValidInvitation(incoming(), codeHash)
+          && incoming().circleId == circleId
+          && incoming().createdBy == request.auth.uid
+          && incoming().usedAt == null
+          && incoming().acceptedBy == null
+          && (!('revokedAt' in incoming()) || incoming().revokedAt == null)
+          && (!('revokedBy' in incoming()) || incoming().revokedBy == null)
+          && ((!('canManageMembers' in incoming()) || incoming().canManageMembers == false) || isCircleOwner(circleId))
+          && incoming().expiresAt > request.time
+          && incoming().createdAt == request.time
+          && isCircleOrganizer(circleId)
+          && existsAfter(/databases/$(database)/documents/invitations/$(codeHash));
+        allow update: if isVerified() && isValidId(circleId) && isValidHash(codeHash)
+          && isValidInvitation(incoming(), codeHash)
+          && incoming().codeHash == existing().codeHash
+          && incoming().circleId == existing().circleId
+          && incoming().createdBy == existing().createdBy
+          && incoming().createdAt == existing().createdAt
+          && (
+            (
+              // Action: Atomic redemption sync
+              existing().usedAt == null
+              && existing().acceptedBy == null
+              && (!('revokedAt' in existing()) || existing().revokedAt == null)
+              && existing().expiresAt > request.time
+              && incoming().diff(existing()).affectedKeys().hasOnly(['usedAt', 'acceptedBy', 'acceptedByName'])
+              && incoming().usedAt == request.time
+              && incoming().acceptedBy == request.auth.uid
+              && existsAfter(memberPath(circleId, request.auth.uid))
+            )
+            || (
+              // Action: Revoke pending invitation (Owner or Organizer)
+              existing().usedAt == null
+              && existing().acceptedBy == null
+              && (!('revokedAt' in existing()) || existing().revokedAt == null)
+              && isCircleOrganizer(circleId)
+              && incoming().diff(existing()).affectedKeys().hasOnly(['revokedAt', 'revokedBy'])
+              && incoming().revokedAt == request.time
+              && incoming().revokedBy == request.auth.uid
+            )
+          );
+        allow delete: if isVerified() && isValidId(circleId) && isValidHash(codeHash)
+          && isCircleOrganizer(circleId);
+      }
+
+      match /medications/{medId} {
+        allow get: if isSignedIn() && isValidId(circleId) && isValidId(medId)
+          && (isCircleOwner(circleId) || isCircleMember(circleId));
+        allow list: if isSignedIn() && (isCircleOwner(circleId) || isCircleMember(circleId));
+        allow create: if isVerified() && isValidId(circleId) && isValidId(medId)
+          && isValidMedication(incoming(), medId)
+          && canEditMedications(circleId)
+          && incoming().createdBy == request.auth.uid
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isVerified() && isValidId(circleId) && isValidId(medId)
+          && isValidMedication(incoming(), medId)
+          && canEditMedications(circleId)
+          && incoming().id == existing().id
+          && incoming().createdBy == existing().createdBy
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'name', 'dosage', 'frequency', 'times', 'startDate', 'endDate',
+            'instructions', 'prescribingDoctor', 'gracePeriodMinutes', 'archived', 'updatedAt'
+          ]);
+        allow delete: if isVerified() && isValidId(circleId) && isValidId(medId)
+          && canEditMedications(circleId);
+      }
+
+      match /medicationLogs/{logId} {
+        allow get: if isSignedIn() && isValidId(circleId) && isValidId(logId)
+          && (isCircleOwner(circleId) || isCircleMember(circleId));
+        allow list: if isSignedIn() && (isCircleOwner(circleId) || isCircleMember(circleId));
+        allow create: if isVerified() && isValidId(circleId) && isValidId(logId)
+          && isValidMedicationLog(incoming(), logId)
+          && canLogDoses(circleId)
+          && incoming().recordedByUid == request.auth.uid
+          && incoming().recordedAt == request.time
+          && incoming().createdAt == request.time
+          && exists(/databases/$(database)/documents/careCircles/$(circleId)/medications/$(incoming().medicationId));
+        allow update: if isVerified() && isValidId(circleId) && isValidId(logId)
+          && isValidMedicationLog(incoming(), logId)
+          && canLogDoses(circleId)
+          && incoming().id == existing().id
+          && incoming().medicationId == existing().medicationId
+          && incoming().dateKey == existing().dateKey
+          && incoming().scheduledTime == existing().scheduledTime
+          && incoming().createdAt == existing().createdAt
+          && incoming().recordedByUid == request.auth.uid
+          && incoming().recordedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'status', 'notes', 'recordedByUid', 'recordedByName', 'recordedByRole', 'recordedAt'
+          ]);
+        allow delete: if isVerified() && isValidId(circleId) && isValidId(logId)
+          && canLogDoses(circleId);
+      }
+
+      match /appointments/{apptId} {
+        allow get: if isSignedIn() && isValidId(circleId) && isValidId(apptId)
+          && (isCircleOwner(circleId) || isCircleMember(circleId));
+        allow list: if isSignedIn() && (isCircleOwner(circleId) || isCircleMember(circleId));
+        allow create: if isVerified() && isValidId(circleId) && isValidId(apptId)
+          && isValidAppointment(incoming(), apptId)
+          && canManageAppointments(circleId)
+          && incoming().createdBy == request.auth.uid
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isVerified() && isValidId(circleId) && isValidId(apptId)
+          && isValidAppointment(incoming(), apptId)
+          && canManageAppointments(circleId)
+          && existing().status != 'cancelled'
+          && incoming().id == existing().id
+          && incoming().createdBy == existing().createdBy
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'doctorName', 'specialization', 'clinicName', 'dateTime',
+            'notes', 'status', 'reminderSent', 'updatedAt'
+          ]);
+        allow delete: if isVerified() && isValidId(circleId) && isValidId(apptId)
+          && canManageAppointments(circleId);
+      }
+
+      match /careTasks/{taskId} {
+        allow get: if isSignedIn() && isValidId(circleId) && isValidId(taskId)
+          && (isCircleOwner(circleId) || isCircleMember(circleId));
+        allow list: if isSignedIn() && (isCircleOwner(circleId) || isCircleMember(circleId));
+        allow create: if isVerified() && isValidId(circleId) && isValidId(taskId)
+          && isValidCareTask(incoming(), taskId)
+          && (isCircleOwner(circleId) || isCircleMember(circleId))
+          && incoming().createdBy == request.auth.uid
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isVerified() && isValidId(circleId) && isValidId(taskId)
+          && isValidCareTask(incoming(), taskId)
+          && (isCircleOwner(circleId) || isCircleMember(circleId))
+          && incoming().id == existing().id
+          && incoming().createdBy == existing().createdBy
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'title', 'notes', 'completed', 'completedBy', 'dueDate', 'updatedAt'
+          ]);
+        allow delete: if isVerified() && isValidId(circleId) && isValidId(taskId)
+          && (isCircleOwner(circleId) || existing().createdBy == request.auth.uid);
+      }
+
+      match /notifications/{notifId} {
+        allow get: if isSignedIn() && isValidId(circleId) && isValidId(notifId)
+          && (isCircleOwner(circleId) || isCircleMember(circleId));
+        allow list: if isSignedIn() && (isCircleOwner(circleId) || isCircleMember(circleId));
+        allow create: if isVerified() && isValidId(circleId) && isValidId(notifId)
+          && isValidNotification(incoming(), notifId)
+          && (isCircleOwner(circleId) || isCircleMember(circleId))
+          && incoming().createdBy == request.auth.uid
+          && incoming().createdAt == request.time;
+        allow update: if isVerified() && isValidId(circleId) && isValidId(notifId)
+          && isValidNotification(incoming(), notifId)
+          && (isCircleOwner(circleId) || isCircleMember(circleId))
+          && incoming().id == existing().id
+          && incoming().createdBy == existing().createdBy
+          && incoming().createdAt == existing().createdAt
+          && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+        allow delete: if false;
+      }
+
+      match /activityLogs/{logId} {
+        allow get: if isSignedIn() && isValidId(circleId) && isValidId(logId)
+          && (isCircleOwner(circleId) || isCircleMember(circleId));
+        allow list: if isSignedIn() && (isCircleOwner(circleId) || isCircleMember(circleId));
+        allow create: if isVerified() && isValidId(circleId) && isValidId(logId)
+          && isValidActivityLog(incoming(), logId)
+          && (
+            isCircleOwner(circleId)
+            || isCircleMember(circleId)
+            || existsAfter(memberPath(circleId, request.auth.uid))
+          )
+          && incoming().actorUid == request.auth.uid
+          && incoming().createdAt == request.time;
+        allow update, delete: if false;
+      }
+    }
+  }
+}
